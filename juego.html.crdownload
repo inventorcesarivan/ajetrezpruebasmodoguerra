@@ -1,0 +1,910 @@
+
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Ajetrez — Tablero (solo)</title>
+<style>
+:root{
+  --cell-light:#e6dac2; --cell-dark:#b18a61;
+  --square:46px; --wood:#b68b5e; --wood2:#d8b48a;
+  --panel-bg:#ffffff; --text:#111827; --accent:#10b981; --danger:#ef4444;
+}
+*{box-sizing:border-box} html,body{height:100%}
+body{margin:0; font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial; background:#fff; color:var(--text);}
+.container{display:flex; align-items:center; justify-content:center; padding:16px;}
+.frame{ position:relative; padding:12px; border-radius:18px;
+  background:linear-gradient(135deg,var(--wood2),var(--wood));
+  box-shadow: inset 0 0 0 6px rgba(0,0,0,.08), 0 .5rem 1rem rgba(0,0,0,.15);
+}
+.toolbar{ display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; justify-content:flex-start; }
+.seg{ display:flex; border:1px solid rgba(0,0,0,.1); border-radius:10px; overflow:hidden; }
+.seg button{ padding:8px 10px; background:#f3f4f6; border:0; cursor:pointer; }
+.seg button.active{ background:#111827; color:white; }
+.board-row{ margin:0; }
+.row-grid{ display:grid; grid-template-columns: repeat(24, var(--square)); }
+.square{ width:var(--square); height:var(--square); display:flex; align-items:center; justify-content:center;
+  border:0; cursor:pointer; font-size:24px; background:transparent; box-shadow: inset 0 0 0 1px rgba(0,0,0,.04);
+}
+.light{ background: var(--cell-light); } .dark{ background: var(--cell-dark); }
+.inactive{ background: transparent; box-shadow:none; cursor:default; }
+.inactive>span{ opacity:0; }
+.sel{ box-shadow: 0 0 0 2px #facc15 inset; }
+.move{ outline: 2px solid var(--accent); outline-offset:-2px; }
+.check{ outline: 3px solid var(--danger); outline-offset:-3px; }
+.bot-preview{ outline: 3px dashed var(--accent); outline-offset:-3px; animation: botpulse 1s infinite; }
+@keyframes botpulse { 0%{transform:scale(1)} 50%{transform:scale(1.05)} 100%{transform:scale(1)} }
+.overlay{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none;  z-index: 200; }
+.banner{ padding:16px 28px; border-radius:18px; background:rgba(17,24,39,0.9); color:#fff; font-weight:800; font-size:42px; letter-spacing:2px; text-transform:uppercase; box-shadow:0 .75rem 2rem rgba(0,0,0,.4); }
+
+/* Botones flotantes (Reiniciar / Pantalla completa) */
+#floatingControls{
+  position:absolute; top:23px; right:12px; z-index:100;
+  display:flex; gap:8px;
+}
+#floatingControls .btn{
+  border-radius:12px; padding:8px 12px; border:1px solid rgba(0,0,0,.1);
+  background:#111827; color:#fff; cursor:pointer; font-weight:700;
+  box-shadow:0 .3rem .6rem rgba(0,0,0,.25);
+}
+#floatingControls .btn:hover{ filter:brightness(1.1); }
+
+/* #rowControls centrado arriba */
+#rowControls{
+  position:absolute; top:23px; left:50%; transform:translateX(-50%);
+  display:flex; gap:10px; align-items:center; z-index:96;
+  background: rgba(255,255,255,0.98); border-radius:12px;
+  box-shadow: 0 .35rem .8rem rgba(0,0,0,.25); padding: 8px 10px;
+}
+
+/* Instructivo: panel y toggle */
+
+#instructivoPanel h3{ font-size:16px; font-weight:800; margin:0 0 6px 0; }
+#instructivoPanel .closeX{
+  position:sticky; float:right; top:0; margin-left:8px;
+  border:none; background:transparent; font-size:18px; cursor:pointer;
+}
+
+
+#instructivoToggle .btn{
+  border-radius:12px; padding:6px 10px; border:1px solid rgba(0,0,0,.1);
+  background:#111827; color:#fff; cursor:pointer; font-weight:700; font-size:14px;
+  box-shadow:0 .25rem .5rem rgba(0,0,0,.2);
+}
+#instructivoToggle .btn:hover{ filter:brightness(1.08); }
+
+/* Responsivo */
+@media (max-width:980px){
+  :root{ --square: min(44px, calc((100vw - 48px) / 24)); }
+  .container{ padding:12px; }
+  #floatingControls{ left:12px; right:12px; justify-content:space-between; flex-wrap:wrap; }
+  #floatingControls .btn{ flex:1 1 auto; }
+  
+  #rowControls{ left:12px; right:12px; transform:none; }
+  
+}
+/* Piezas como SVG: tamaño relativo a la casilla */
+.piece-svg { width: 96%; height: 96%; display:block; pointer-events:none; 
+  vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; }
+.piece-svg.white { fill: #ffffff; stroke: #111111; stroke-width: 2; }
+.piece-svg.black { fill: #111111; stroke: #111111; stroke-width: 2; }
+.piece-svg.white { fill: #ffffff; stroke: #111111; stroke-width: 2; }
+.piece-svg.black { fill: #111111; stroke: #111111; stroke-width: 2; }
+
+/* === Botonera inferior: estilo negro/blanco en botones === */
+#toolbarBottom .btn, #floatingControls .btn {
+  background-color: #000 !important;
+  color: #fff !important;
+  border-color: #000 !important;
+  font-weight: bold !important;
+}
+/* Separación inferior similar a la superior */
+#toolbarBottom { margin-top: 10px; }
+/* === SOLO MÓVIL: mover Reiniciar/Pantalla completa arriba a la derecha y reducir tamaño === */
+@media (max-width: 699px){
+  #floatingControls{
+    position: fixed;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    flex-direction: row;
+    gap: 6px;
+    z-index: 9999;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+  }
+  #floatingControls .btn{
+    font-size: 0.72em !important;
+    padding: 6px 8px !important;
+    border-radius: 8px !important;
+    line-height: 1.1 !important;
+    min-height: auto !important;
+  }
+}
+
+/* === SOLO MÓVIL: subir medio casillero los controles de modo === */
+@media (max-width: 699px){
+  #modeControls {
+    margin-top: -10px !important;
+  }
+}
+
+
+/* === SOLO MÓVIL: bajar medio casillero los botones de mantener/desplazar sección === */
+@media (max-width: 699px){
+  #rowControls {
+    margin-top: 10px !important;
+  }
+}
+
+
+/* === SOLO MÓVIL: bajar 1 casillero (~20px) el cartel rojo (banner) === */
+@media (max-width: 699px){
+  #banner{
+    margin-top: 20px !important;
+  }
+}
+
+
+/* === SOLO WEB: subir 1 casillero los botones de mantener/desplazar sección === */
+@media (min-width:981px){
+  #rowControls{
+    top: calc(23px - var(--square)) !important;
+  }
+}
+
+
+/* === NO FLOTANTE para el cartel rojo de regla (web y móvil) === */
+#rule-toast.toast{
+  position: static !important;
+  left: auto !important;
+  top: auto !important;
+  transform: none !important;
+  margin: 10px auto !important;
+  max-width: min(92vw, 560px) !important;
+  text-align: center !important;
+  z-index: auto !important;
+}
+/* Contenedor centra el cartel dentro del marco */
+.frame #rule-toast.toast{ display:none; } /* por defecto oculto; se muestra vía JS */
+
+
+/* === Subir medio casillero los botones de mantener/desplazar sección (web y móvil) === */
+#rowControls{
+  margin-top: calc(-0.5 * var(--square)) !important;
+}
+
+
+/* === Subir 4 casilleros el cartel emergente de advertencia (rule-toast) === */
+#rule-toast.toast{
+  margin-top: calc(-4 * var(--square)) !important;
+}
+
+
+/* === Superponer el cartel de advertencia por encima de todo === */
+#rule-toast.toast{
+  position: absolute !important;
+  top: 10% !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  z-index: 99999 !important;
+  margin-top: 0 !important;
+}
+
+
+/* === Desplazar 1 casillero hacia abajo el cartel de advertencia === */
+#rule-toast.toast{
+  top: calc(10% + var(--square)) !important;
+}
+
+
+/* === SOLO MÓVIL: desplazar 1 casillero hacia abajo el botón de mantener/desplazar sección === */
+@media (max-width:699px){
+  #rowControls{
+    margin-top: calc(var(--square)) !important;
+  }
+}
+
+
+/* === SOLO MÓVIL: desplazar 4 casilleros a la derecha el botón de mantener/desplazar sección === */
+@media (max-width:699px){
+  #rowControls{
+    margin-left: calc(var(--square) * 4) !important;
+  }
+}
+
+
+/* === SOLO MÓVIL: desplazar 1 casillero hacia abajo el botón de modo (Estás en modo / Cambiar de modo) === */
+@media (max-width:699px){
+  .toolbar .mode-inline{
+    margin-top: calc(var(--square)) !important;
+  }
+}
+
+
+/* === WEB y MÓVIL: enviar el botón de modo (Estás en modo / Cambiar de modo) a la derecha === */
+.toolbar .mode-inline{
+  margin-left: auto !important;
+  margin-right: 0 !important;
+  justify-content: flex-end !important;
+}
+
+
+/* === Ajustes de posición === */
+
+/* Bajar medio casillero el botón de modo */
+.toolbar .mode-inline{
+  margin-top: calc(0.5 * var(--square)) !important;
+}
+
+/* Subir medio casillero los botones de reiniciar y pantalla completa */
+#floatingControls{
+  top: calc(23px - 0.5 * var(--square)) !important;
+}
+
+
+/* === Bajar 2mm el botón de Reiniciar === */
+#btnResetVisible{
+  position: relative;
+  top: 2mm !important;
+}
+
+
+/* === Bajar 2mm también el botón de Ver en pantalla completa === */
+#btnFullscreen{
+  position: relative;
+  top: 2mm !important;
+}
+
+</style>
+<style>
+/* 20% más chico el panel del instructivo */
+
+</style><style>
+/* 5% más chico adicional y desplazar 2 casilleros a la derecha */
+
+@media (max-width:980px){
+  /* En móvil mantener margen estándar para no recortar */
+  
+}
+</style><style>
+/* 5% más chico adicional y subir 3 casilleros desde el borde inferior */
+
+@media (max-width:980px){
+  
+}
+</style><style>
+/* -5% tamaño adicional y tipografía -5% con negrita */
+
+#instructivoPanel h3{ font-weight: 800 !important; }
+</style><style>
+/* Ajuste adicional: -10% tipografía y -5% recuadro del instructivo */
+
+#instructivoPanel h3{ font-weight: 800 !important; }
+</style><style>
+/* Quitar negrita del texto del instructivo, mantenerla en el título */
+
+#instructivoPanel h3{ font-weight: 800 !important; }
+#instructivoPanel p, #instructivoPanel li, #instructivoPanel ol, #instructivoPanel ul, #instructivoPanel span, #instructivoPanel div{
+  font-weight: 400 !important;
+}
+</style><style>
+/* Desplazar el instructivo 0.5 casillero a la derecha y 0.5 casillero hacia abajo */
+
+</style><style>
+/* Separar los botones superiores 0.5 casillero del borde derecho */
+#floatingControls{
+  right: calc(12px + var(--square) * 0.5) !important;
+}
+</style><style>
+/* Mover los botones superiores 0.5 casillero a la derecha (volver a 12px del borde) */
+#floatingControls{
+  right: 12px !important;
+}
+</style><style>
+/* Desplazar el instructivo 0.5 casillero a la derecha (ahora 3 casilleros desde el borde izquierdo) */
+
+</style><style>
+/* Reducir la altura del instructivo medio casillero */
+
+</style><style>
+/* Aumentar el ancho del instructivo medio casillero */
+
+</style><style>
+/* Desplazar el instructivo 0.5 casillero a la izquierda */
+
+</style><style>
+/* -5% tamaño del panel y mantener el offset de 0.5 casillero; re-aplicar left 2.5 casilleros */
+
+</style><style>
+/* +0.5 casillero a la derecha y +0.5 hacia arriba; tipografía -5% adicional */
+
+</style><style>
+/* Desplazar el instructivo 0.5 casillero a la izquierda (ahora 2.5 casilleros desde la izquierda) */
+
+</style><style>
+/* -5% adicional del recuadro del instructivo (manteniendo desplazamientos actuales) */
+
+</style><style>
+/* Achicar altura 0.5 casillero extra y desplazar 0.5 casillero a la derecha */
+
+</style><style>
+/* Bajar el instructivo 3mm y reducir tipografía un 10% (80% → 72%) */
+
+</style><style>
+/* Subir el instructivo medio casillero (sumar 0.5 * var(--square) al bottom actual) */
+
+</style><style>
+/* Subir el instructivo 3mm (eliminar el -3mm previo) */
+
+</style><style>
+/* Bajar el instructivo medio casillero */
+
+</style><style>
+/* +3% tamaño del recuadro del instructivo (ancho y alto) */
+
+</style><style>
+/* Microajuste: interlineado 1.18 para el instructivo */
+
+</style><style>
+/* Bajar 3mm, desplazar 3mm a la izquierda, y reducir tipografía 5% */
+
+</style><style>
+/* Ajustes finos:
+   - #rowControls baja 0.5 casillero
+   - #instructivoToggle sube 0.5 casillero */
+#rowControls{
+  top: calc(23px + var(--square) * 0.5) !important;
+}
+
+</style><style>
+/* Bajar 2mm el botón 'Mostrar/Ocultar instructivo' y volver transparente el contenedor de Mantener/Desplazar */
+
+#rowControls{
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  backdrop-filter: none !important;
+}
+</style><style>
+/* Colocar el instructivo DENTRO del tablero (#board) */
+#board{ position: relative !important; }
+
+</style><style>
+/* Subir instructivo 1 casillero dentro del tablero */
+
+</style><style>
+/* Siempre flotante en ambas vistas, manteniendo posición relativa al tablero */
+#board{ position: relative !important; overflow: visible !important; }
+
+</style>
+<style id="mobile-controls-below-css">
+@media (max-width:980px){
+  #floatingControls{
+    position: static !important;
+    margin: 12px 0 0 0 !important;
+    width: 100% !important;
+    justify-content: space-between !important;
+    flex-wrap: nowrap !important;
+  }
+  #floatingControls .btn{
+    flex: 1 1 auto;
+  }
+}
+</style>
+<style id="toggle-der-10casilleros-mobile-only">
+/* Reubicar SOLO EN MÓVIL el botón de ocultar instructivo 10 casilleros a la derecha */
+@media (max-width:980px){
+  
+}
+/* Asegurar que en escritorio quede como estaba (centrado con translateX(-50%)) */
+@media (min-width:981px){
+  
+}
+</style>
+<style id="mobile-instructivo-up-half-and-shift-rowcontrols-8">
+@media (max-width:980px){
+  /* Subir medio casillero el botón del instructivo */
+  
+  /* Mover a la derecha 8 casilleros los controles de Mantener/Desplazar sección */
+  #rowControls{
+    padding-left: calc(var(--square) * 8) !important;
+  }
+}
+</style>
+<style id="mobile-board-down-1square">
+@media (max-width:980px){
+  /* Desplazar hacia abajo 1 casillero el tablero */
+  #board{
+    margin-top: var(--square) !important;
+  }
+}
+</style>
+<style>
+/* === Ajetrez: UI states for illegal shift === */
+.btn.blocked{background:#d33;color:#fff;border-color:#a00;cursor:not-allowed;opacity:.95}
+#rule-toast.toast{position:fixed;left:50%;top:12%;transform:translateX(-50%);background:rgba(200,0,0,.92);color:#fff;padding:10px 14px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.35);font-weight:700;max-width:min(92vw,560px);text-align:center;transition:opacity .35s z-index:9999;}
+</style>
+
+
+
+<style id="mode-indicator-style">
+.mode-inline{ display:inline-flex; align-items:center; gap:8px; margin-left:8px; }
+.mode-pill{
+  display:inline-flex; align-items:center; gap:6px;
+  padding:6px 10px; border-radius:999px;
+  background:#000; color:#fff;
+  font-size:15px; font-weight:800; line-height:1;
+}
+.mode-pill-label{ opacity:.9; }
+.mode-pill-current{ opacity:1; }
+@media (max-width: 640px){
+  .mode-pill{ font-size:14px; }
+}
+</style>
+
+
+<style>
+.piece-img{
+  width:100%; height:100%; display:block; pointer-events:none; user-select:none;
+  margin:auto; image-rendering:auto; object-fit:contain; max-width:100%; max-height:100%;
+  background-color:transparent !important; -webkit-user-drag:none;
+  filter:drop-shadow(0 1.2px 1.6px rgba(0,0,0,.35));
+}</style><script>
+let SFX = {
+  move: new Audio('assets/audio/move.mp3'),
+  capture: new Audio('assets/audio/capture.mp3'),
+  shift: new Audio('assets/audio/shift.mp3')
+};
+function playSfx(kind){
+  try{
+    const a = SFX[kind];
+    if(!a) return;
+    a.currentTime = 0;
+    a.play().catch(()=>{});
+  }catch(e){}
+}
+</script><style>
+/* === Ajetrez: Indicador de fin de partida (solo color rojo en "Reiniciar") === */
+.btn-alert {
+  background: #d00 !important;
+  color: #fff !important;
+  border-color: #a00 !important;
+}
+</style>
+
+<style id="mode-inline-stack-2025-08-28">
+/* === Colocar botón de cambiar modo DEBAJO del cartel de modo (todas las versiones) === */
+.mode-inline{
+  display: inline-flex;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  gap: 8px !important;
+}
+/* Asegura el orden: primero la "pill" de estado, luego el botón */
+.mode-inline .mode-pill{ order: 0 !important; }
+.mode-inline button,
+.mode-inline .toggle-mode,
+.mode-inline .btn,
+.mode-inline a[role="button"]{
+  order: 1 !important;
+  display: inline-flex;
+}
+</style>
+
+<style id="rowcontrols-down-1square-2025-08-28">
+/* === WEB y MÓVIL: desplazar 1 casillero hacia abajo el botón Mantener/Desplazar sección === */
+#rowControls{
+  top: calc(23px + (1 * var(--square))) !important;
+}
+</style>
+
+<style id="rowcontrols-down-extra1-mobile-2025-08-28">
+/* === SOLO MÓVIL: desplazar 1 casillero adicional hacia abajo el botón Mantener/Desplazar sección === */
+@media (max-width:699px){
+  #rowControls{
+    top: calc(23px + (2 * var(--square))) !important;
+  }
+}
+</style>
+
+<style id="board-up-1square-2025-08-28">
+/* === WEB y MÓVIL: subir las secciones del tablero 1 casillero === */
+#board, #mobile-board, #mobile-board-down-1square{
+  top: calc(var(--board-top, 0px) - var(--square)) !important;
+  margin-top: calc(-1 * var(--square)) !important;
+}
+</style>
+
+<style id="board-up-0_5square-2025-08-28">
+/* === WEB y MÓVIL: subir las secciones del tablero medio casillero === */
+#board, #mobile-board, #mobile-board-down-1square{
+  top: calc(var(--board-top, 0px) - 0.5 * var(--square)) !important;
+  margin-top: calc(-0.5 * var(--square)) !important;
+}
+</style>
+
+<style id="mode-top-left-boardbase-2025-08-28">
+/* === Mover botón e indicador de modo a la esquina superior izquierda, al inicio de la base del tablero === */
+.mode-inline{
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  margin: 0 !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  z-index: 9999;
+}
+#board, #mobile-board, #mobile-board-down-1square{
+  position: relative;
+}
+</style>
+
+<style id="board-down-2squares-2025-08-28">
+/* === WEB y MÓVIL: bajar el tablero 2 casilleros === */
+#board, #mobile-board, #mobile-board-down-1square{
+  top: calc(var(--board-top, 0px) + 2 * var(--square)) !important;
+  margin-top: calc(2 * var(--square)) !important;
+}
+</style>
+
+<style id="mode-inline-row-2025-08-28">
+/* === Colocar botón de cambiar modo a la derecha del indicador de modo === */
+.mode-inline{
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  margin: 0 !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 8px !important;
+  z-index: 9999;
+}
+.mode-inline .mode-pill{ order: 0 !important; }
+.mode-inline button,
+.mode-inline .toggle-mode,
+.mode-inline .btn,
+.mode-inline a[role="button"]{ order: 1 !important; }
+</style>
+
+<style id="board-up-2squares-2025-08-28">
+/* === WEB y MÓVIL: subir el tablero 2 casilleros === */
+#board, #mobile-board, #mobile-board-down-1square{
+  top: calc(var(--board-top, 0px) - 2 * var(--square)) !important;
+  margin-top: calc(-2 * var(--square)) !important;
+}
+</style>
+
+<style id="revert-board-up2-and-align-mode-2025-08-28">
+/* === Revertir: tablero vuelve a BAJAR 2 casilleros === */
+#board, #mobile-board, #mobile-board-down-1square{
+  top: calc(var(--board-top, 0px) + 2 * var(--square)) !important;
+  margin-top: calc(2 * var(--square)) !important;
+}
+
+/* === Alinear indicador y botón de modo con el borde superior ACTUAL del tablero === */
+.mode-inline{
+  position: absolute !important;
+  top: calc(var(--board-top, 0px) + 2 * var(--square)) !important;
+  left: 0 !important;
+  margin: 0 !important;
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 8px !important;
+  z-index: 9999;
+}
+.mode-inline .mode-pill{ order: 0 !important; }
+.mode-inline button,
+.mode-inline .toggle-mode,
+.mode-inline .btn,
+.mode-inline a[role="button"]{ order: 1 !important; }
+</style>
+
+<style id="mode-align-top-board-2025-08-28">
+/* === Subir indicador de modo y botón de cambio al TOPE de la base del tablero === */
+.mode-inline{
+  position: absolute !important;
+  top: 0 !important; /* alineado al tope del tablero */
+  left: 0 !important;
+  margin: 0 !important;
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 8px !important;
+  z-index: 9999;
+}
+.mode-inline .mode-pill{ order: 0 !important; }
+.mode-inline button,
+.mode-inline .toggle-mode,
+.mode-inline .btn,
+.mode-inline a[role="button"]{ order: 1 !important; }
+</style>
+
+<style id="mode-top-right-half-square-2025-08-28">
+/* === Mover indicador y botón de modo medio casillero a la derecha === */
+.mode-inline{
+  left: calc(0.5 * var(--square)) !important;
+}
+</style>
+
+<style id="board-up-2squares-2025-08-28b">
+/* === WEB y MÓVIL: subir el tablero 2 casilleros === */
+#board, #mobile-board, #mobile-board-down-1square{
+  top: calc(var(--board-top, 0px) - 2 * var(--square)) !important;
+  margin-top: calc(-2 * var(--square)) !important;
+}
+</style>
+
+<style id="revert-board-up2-2025-08-28c">
+/* === Revertir: tablero vuelve a su posición base (sin subida extra) === */
+#board, #mobile-board, #mobile-board-down-1square{
+  top: var(--board-top, 0px) !important;
+  margin-top: 0 !important;
+}
+</style>
+
+<style id="board-down-1square-2025-08-28d">
+/* === WEB y MÓVIL: bajar el tablero 1 casillero === */
+#board, #mobile-board, #mobile-board-down-1square{
+  top: calc(var(--board-top, 0px) + 1 * var(--square)) !important;
+  margin-top: calc(1 * var(--square)) !important;
+}
+</style>
+
+<style id="mode-up-2mm-2025-08-28">
+/* === Subir indicador de modo y botón unos 2mm === */
+.mode-inline{
+  margin-top: -2mm !important;
+}
+</style>
+
+<style id="restart-fs-down-3mm-2025-08-28">
+/* === Bajar botones de Reiniciar y Pantalla Completa 3mm === */
+#resetBtn, #fullscreenBtn{
+  margin-top: 3mm !important;
+}
+</style>
+
+<style id="board-up-0_5square-2025-08-28e">
+/* === WEB y MÓVIL: subir el tablero medio casillero === */
+#board, #mobile-board, #mobile-board-down-1square{
+  top: calc(var(--board-top, 0px) - 0.5 * var(--square)) !important;
+  margin-top: calc(-0.5 * var(--square)) !important;
+}
+</style>
+
+<style id="board-offset-normalizer-2025-08-28">
+/* === Normalización de desplazamiento del tablero ===
+   Motivo: había múltiples reglas conflictivas con top/margin-top !important
+   que se acumulaban y producían desplazamientos mayores a lo esperado.
+   Solución: una sola fuente de verdad: --board-offset-y con transform.
+*/
+:root{
+  --board-offset-y: calc(1 * var(--square)); /* estado actual deseado: BAJAR 1 casillero */
+}
+#board, #mobile-board, #mobile-board-down-1square{
+  top: var(--board-top, 0px) !important;
+  margin-top: 0 !important;
+  transform: translateY(var(--board-offset-y)) !important;
+}
+</style>
+
+<style id="reset-fs-align-mode-2025-08-28">
+/* === Alinear botones Reiniciar y Pantalla Completa a la altura de los botones de modo === */
+:root{
+  /* Usa el mismo offset vertical que el bloque de modo (actualmente ~ -2mm respecto al tope de la base) */
+  --mode-top-offset: -2mm;
+}
+#resetBtn, #fullscreenBtn{
+  position: absolute !important;
+  top: 0 !important;
+  transform: translateY(var(--mode-top-offset)) !important;
+  margin-top: 0 !important; /* neutraliza ajustes previos */
+}
+</style>
+
+<style id="reset-fs-extra-down-3mm-2025-08-28">
+/* === Bajar Reiniciar y Pantalla Completa 3mm más respecto a los controles de modo === */
+#resetBtn, #fullscreenBtn{
+  transform: translateY(calc(var(--mode-top-offset, 0px) + 3mm)) !important;
+}
+</style>
+
+<style id="reset-fs-left-half-square-2025-08-28">
+/* === Desplazar Reiniciar y Pantalla Completa medio casillero a la izquierda === */
+#resetBtn, #fullscreenBtn{
+  transform: translate(calc(-0.5 * var(--square)), calc(var(--mode-top-offset, 0px) + 3mm)) !important;
+}
+</style>
+
+<style id="fix-visible-reset-fs-2025-08-28">
+/* === Corregir target: los botones visibles son #btnResetVisible y #btnFullscreen === */
+#btnResetVisible, #btnFullscreen{
+  /* Anula el top anterior y usa transform como única fuente de desplazamiento */
+  top: 0 !important;
+  /* Mantener posicionamiento no forzado (relativo por defecto) para no romper layout */
+  position: relative !important;
+  transform: translate(calc(-0.5 * var(--square)), calc(var(--mode-top-offset, 0px) + 3mm)) !important;
+}
+
+/* En móvil, preservar el mismo comportamiento (por si había overrides) */
+@media (max-width: 699px){
+  #btnResetVisible, #btnFullscreen{
+    top: 0 !important;
+    transform: translate(calc(-0.5 * var(--square)), calc(var(--mode-top-offset, 0px) + 3mm)) !important;
+  }
+}
+</style>
+
+<style id="visible-reset-fs-down-half-square-2025-08-28">
+/* === Bajar botones visibles Reiniciar y Pantalla Completa medio casillero (web y móvil) === */
+#btnResetVisible, #btnFullscreen{
+  transform: translate(calc(-0.5 * var(--square)), calc(var(--mode-top-offset, 0px) + 3mm + 0.5 * var(--square))) !important;
+}
+</style>
+
+<style id="board-container-expand-down-0_5square-2025-08-28">
+/* === Ampliar la base contenedora del tablero hacia abajo medio casillero === */
+#board, #mobile-board, #mobile-board-down-1square{
+  padding-bottom: calc(0.5 * var(--square)) !important;
+}
+</style>
+
+<style id="board-container-expand-down-extra0_5square-2025-08-28">
+/* === Ampliar aún más el fondo/base del tablero hacia abajo (otro medio casillero) === */
+#board, #mobile-board, #mobile-board-down-1square{
+  padding-bottom: calc(1 * var(--square)) !important; /* total: 1 casillero */
+}
+</style>
+
+<style id="mobile-reset-fs-up-half-and-narrow-2025-08-28">
+/* === SOLO MÓVIL: subir medio casillero los botones Reiniciar y Pantalla Completa, y achicar ancho a la mitad === */
+@media (max-width:699px){
+  #btnResetVisible, #btnFullscreen{
+    transform: translate(calc(-0.5 * var(--square)), calc(var(--mode-top-offset, 0px) + 3mm)) !important;
+    width: 50% !important;
+  }
+}
+</style>
+
+<style id="mobile-reset-fs-topright-above-board-2025-08-28">
+/* === SOLO MÓVIL: enviar Reiniciar / Pantalla completa a la derecha ARRIBA del tablero, más angostos === */
+@media (max-width:699px){
+  /* Ubicar el contenedor de controles flotantes respecto al tablero */
+  #floatingControls{
+    position: absolute !important;
+    top: calc(var(--board-top, 0px) + var(--board-offset-y, 0px)) !important; /* alineado al tope visible del tablero */
+    right: calc(0.5 * var(--square)) !important;
+    left: auto !important;
+    z-index: 2147483000 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-end !important;
+    gap: 6px !important;
+    flex-wrap: nowrap !important;
+  }
+
+  /* Botones: más angostos, sin transform heredado, ajustando padding */
+  #btnResetVisible, #btnFullscreen{
+    position: relative !important;
+    top: 0 !important;
+    transform: none !important; /* neutraliza ajustes previos de translate */
+    width: 42vw !important;      /* más angosto */
+    max-width: 180px !important; /* límite superior razonable */
+    padding: 6px 10px !important;
+    text-align: center !important;
+  }
+}
+</style>
+
+<style id="mobile-reset-fs-right-half-square-2025-08-28">
+/* === SOLO MÓVIL: desplazar medio casillero más a la derecha los botones Reset/Fullscreen === */
+@media (max-width:699px){
+  #floatingControls{
+    right: calc(0.5 * var(--square) + 0.5 * var(--square)) !important; /* base + medio casillero extra */
+  }
+}
+</style>
+
+<style id="reset-fs-floating-both-2025-08-28">
+/* === Hacer flotantes los botones Reiniciar y Pantalla Completa en web y móvil === */
+#floatingControls{
+  position: fixed !important;
+  top: calc(var(--board-top, 0px) + var(--board-offset-y, 0px) + 0.5 * var(--square)) !important;
+  right: calc(0.5 * var(--square)) !important;
+  z-index: 2147483647 !important;
+  display: flex !important;
+  flex-direction: row !important;
+  gap: 6px !important;
+  background: transparent !important;
+  padding: 0 !important;
+}
+#floatingControls .btn{
+  width: auto !important;
+  min-width: 100px;
+  padding: 6px 10px !important;
+  text-align: center !important;
+}
+</style>
+
+<style id="reset-fs-web-left4-up1-2025-08-28">
+/* === SOLO WEB: desplazar botones Reiniciar y Fullscreen 4 casilleros a la izquierda y 1 hacia arriba === */
+@media (min-width:700px){
+  #floatingControls{
+    right: calc(0.5 * var(--square) + 4 * var(--square)) !important;
+    top: calc(var(--board-top, 0px) + var(--board-offset-y, 0px) - 1 * var(--square)) !important;
+  }
+}
+</style>
+
+<style id="reset-fs-web-left4-up1-down0_5-2025-08-28">
+/* === SOLO WEB: bajar botones flotantes medio casillero (manteniendo 4 izq, 1 arriba previos) === */
+@media (min-width:700px){
+  #floatingControls{
+    top: calc(var(--board-top, 0px) + var(--board-offset-y, 0px) - 1 * var(--square) + 0.5 * var(--square)) !important;
+  }
+}
+</style>
+
+<style id="reset-fs-mobile-halfwidth-2025-08-28">
+/* === SOLO MÓVIL: achicar ancho de los botones Reiniciar y Fullscreen a la mitad === */
+@media (max-width:699px){
+  #btnResetVisible, #btnFullscreen{
+    width: 50% !important;
+    max-width: none !important;
+    flex: 0 0 auto !important;
+  }
+}
+</style>
+
+<style id="reset-fs-mobile-vertical-stack-2025-08-28">
+/* === SOLO MÓVIL: colocar botones Reiniciar y Fullscreen uno debajo del otro === */
+@media (max-width:699px){
+  #floatingControls{
+    flex-direction: column !important;
+    align-items: flex-end !important;
+  }
+  #btnResetVisible, #btnFullscreen{
+    width: 50% !important;
+  }
+}
+</style>
+
+<style id="reset-fs-mobile-down-1square-2025-08-28">
+/* === SOLO MÓVIL: bajar 1 casillero los botones Reiniciar y Pantalla Completa === */
+@media (max-width:699px){
+  /* Desplazar el contenedor de controles móviles 1 casillero hacia abajo
+     Usamos translateY para sumar al posicionamiento actual sin romper otras reglas */
+  #floatingControls{
+    transform: translateY(var(--square)) !important;
+  }
+}
+</style>
+
+<style id="reset-fs-mobile-rightmax-2025-08-28">
+/* === SOLO MÓVIL: alinear botones Reiniciar y Pantalla Completa lo más a la derecha dentro del tablero === */
+@media (max-width:699px){
+  #floatingControls{
+    right: 0 !important;
+    left: auto !important;
+    justify-content: flex-end !important;
+    width: 100% !important;
+  }
+}
+</style>
+
+<style id="reset-fs-mobile-down-3squares-rightmax-2025-08-28">
+/* === SOLO MÓVIL: bajar botones Reiniciar y Pantalla Completa 2 casilleros adicionales (total 3) === */
+@media (max-width:699px){
+  #floatingControls{
+    transform: translateY(calc(3 * var(--square))) !important;
+  }
+}
+</style>
+
+<style id="reset-fs-all-left1square-2025-08-28">
+/* === WEB y
